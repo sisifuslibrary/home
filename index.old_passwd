@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acceso Restringido · Biblioteca</title>
+
+    <!-- Componentes y Librerías -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/zero-md@3?register"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
+
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: #f4f6f8;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 1rem;
+        }
+
+        /* --- ESTILOS DE LOGIN --- */
+        #login-screen {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            padding: 2.5rem;
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+        #login-screen h2 {
+            color: #1e293b;
+            margin-top: 0;
+            margin-bottom: 1.5rem;
+        }
+        .input-group {
+            margin-bottom: 1rem;
+            text-align: left;
+        }
+        .input-group label {
+            display: block;
+            font-size: 0.9rem;
+            color: #475569;
+            margin-bottom: 0.4rem;
+        }
+        .input-group input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 1rem;
+            outline: none;
+            transition: border 0.2s;
+        }
+        .input-group input:focus {
+            border-color: #2563eb;
+        }
+        .btn-login {
+            width: 100%;
+            padding: 0.85rem;
+            background: #2563eb;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-top: 1rem;
+        }
+        .btn-login:hover { background: #1d4ed8; }
+        #login-error {
+            color: #b91c1c;
+            font-size: 0.9rem;
+            margin-top: 1rem;
+            display: none;
+        }
+
+        /* --- CONTENEDOR PRINCIPAL (Oculto por defecto) --- */
+        .contenedor {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            padding: 2rem;
+            width: 100%;
+            max-width: 650px;
+            display: none; /* Se muestra tras el login */
+        }
+        h1 { font-size: 1.5rem; color: #1e293b; text-align: center; margin-top: 0;}
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.85rem 1rem; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        th { background-color: #e2e8f0; color: #334155; }
+        tr:hover td { background-color: #f8fafc; }
+        a {
+            color: #2563eb; text-decoration: none; font-weight: 500;
+            display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer;
+        }
+        a:hover { text-decoration: underline; }
+        .tipo-md a::before { content: "📄"; }
+        .tipo-epub a::before { content: "📘"; }
+        .archivo { font-family: monospace; font-size: 0.95rem; word-break: break-word;}
+
+        /* --- MODAL VISOR --- */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6);
+            display: none; justify-content: center; align-items: center;
+            padding: 1.5rem; z-index: 1000;
+        }
+        .modal-overlay.activo { display: flex; }
+        .modal-contenido {
+            background: #fff; border-radius: 12px; width: 100%; max-width: 950px;
+            max-height: 90vh; display: flex; flex-direction: column;
+            overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.3);
+        }
+        .modal-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0; background: #f8fafc;
+        }
+        .modal-header h2 { margin: 0; font-size: 1.1rem; color: #1e293b; }
+        .cerrar-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #64748b; }
+        .cerrar-btn:hover { color: #0f172a; }
+        .modal-body { overflow-y: auto; padding: 1.5rem; flex: 1; display: flex; flex-direction: column; }
+
+        #epub-viewer { width: 100%; height: 70vh; display: none; flex-direction: column; }
+        #epub-viewer.activo { display: flex; }
+        #epub-area { flex: 1; width: 100%; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 8px; }
+        .epub-controls {
+            display: flex; justify-content: center; gap: 1rem; padding: 0.6rem;
+            background: #f8fafc; border: 1px solid #e2e8f0; border-top: none;
+            border-radius: 0 0 8px 8px;
+        }
+        .epub-controls button { padding: 0.4rem 1rem; cursor: pointer; border-radius: 4px; border: 1px solid #cbd5e1;}
+        .epub-controls button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .cargando { display: none; text-align: center; padding: 2rem; color: #64748b; }
+        .error-msg { display: none; background: #fef2f2; color: #b91c1c; padding: 1rem; border-radius: 8px; border: 1px solid #fecaca; margin-top: 1rem;}
+        zero-md img { max-width: 100%; height: auto; border-radius: 6px; }
+    </style>
+</head>
+<body>
+
+    <!-- ================= PANTALLA DE LOGIN ================= -->
+    <div id="login-screen">
+        <h2>🔒 Acceso Privado</h2>
+        <div class="input-group">
+            <label for="usuario">Usuario</label>
+            <input type="text" id="usuario" placeholder="Introduce tu usuario">
+        </div>
+        <div class="input-group">
+            <label for="password">Contraseña</label>
+            <input type="password" id="password" placeholder="••••••••">
+        </div>
+        <button class="btn-login" id="btnIngresar">Ingresar</button>
+        <div id="login-error">Usuario o contraseña incorrectos.</div>
+    </div>
+
+    <!-- ================= CONTENIDO PROTEGIDO ================= -->
+    <div class="contenedor" id="app-contenido">
+        <h1>Archivos disponibles</h1>
+        <table>
+            <thead>
+                <tr><th>Archivo</th><th>Acción</th></tr>
+            </thead>
+            <tbody>
+                <tr class="tipo-md">
+                    <td class="archivo">color.md</td>
+                    <td><a href="#" data-src="color.md" data-tipo="md">Abrir</a></td>
+                </tr>
+                <tr class="tipo-md">
+                    <td class="archivo">piranesi.md</td>
+                    <td><a href="#" data-src="piranesi.md" data-tipo="md">Abrir</a></td>
+                </tr>
+                <tr class="tipo-epub">
+                    <td class="archivo">El_vendedor_de_suenos.epub</td>
+                    <td><a href="#" data-src="El_vendedor_de_suenos.epub" data-tipo="epub">Abrir</a></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- ================= MODAL VISOR ================= -->
+    <div class="modal-overlay" id="visorOverlay">
+        <div class="modal-contenido">
+            <div class="modal-header">
+                <h2 id="visorTitulo">Visor</h2>
+                <button class="cerrar-btn" id="cerrarVisor">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <div id="mdContainer" style="display:none;"></div>
+                <div id="epub-viewer">
+                    <div id="epub-area"></div>
+                    <div class="epub-controls">
+                        <button id="epubPrev" disabled>◀ Anterior</button>
+                        <span id="epubPageInfo" style="align-self:center; font-size:0.9rem;">—</span>
+                        <button id="epubNext" disabled>Siguiente ▶</button>
+                    </div>
+                </div>
+                <div id="mensajeVisor" class="cargando">Cargando archivo...</div>
+                <div id="errorVisor" class="error-msg"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. CONFIGURACIÓN DE SEGURIDAD
+        // ==========================================
+        
+        // Hashes SHA-256 generados previamente. 
+        // Usuario: "admin" | Contraseña: "Secreta123"
+        // Para cambiar la contraseña, busca un generador de SHA-256 online y pega aquí el hash.
+        const HASH_USUARIO = "4bdbc215d8dc3c571e802a69bced0c3071cc4a1f129ad97e15b357018aac6cd4";
+        const HASH_PASSWORD = "2f9ad01e7c5bd7834a1da34dae525133f63bdc14b1c89196579e0ad02e1a1e17"; 
+
+        // Función para encriptar lo que escribe el usuario
+        async function sha256(texto) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(texto);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        // ==========================================
+        // 2. LÓGICA DE LOGIN
+        // ==========================================
+        document.getElementById('btnIngresar').addEventListener('click', async () => {
+            const userVal = document.getElementById('usuario').value.trim();
+            const passVal = document.getElementById('password').value;
+            const errorDiv = document.getElementById('login-error');
+
+            if (!userVal || !passVal) {
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            // Encriptamos lo que el usuario escribió
+            const hashUserInput = await sha256(userVal);
+            const hashPassInput = await sha256(passVal);
+
+            // Comparación
+            if (hashUserInput === HASH_USUARIO && hashPassInput === HASH_PASSWORD) {
+                // Login correcto
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('app-contenido').style.display = 'block';
+            } else {
+                // Login incorrecto
+                errorDiv.style.display = 'block';
+                document.getElementById('password').value = '';
+            }
+        });
+
+        // Permitir presionar "Enter" en los inputs
+        document.getElementById('password').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') document.getElementById('btnIngresar').click();
+        });
+
+        // ==========================================
+        // 3. LÓGICA DE LA APP (MD y EPUB)
+        // ==========================================
+        (function () {
+            const overlay = document.getElementById('visorOverlay');
+            const titulo = document.getElementById('visorTitulo');
+            const mdContainer = document.getElementById('mdContainer');
+            const epubViewer = document.getElementById('epub-viewer');
+            const epubArea = document.getElementById('epub-area');
+            const epubPrev = document.getElementById('epubPrev');
+            const epubNext = document.getElementById('epubNext');
+            const epubPageInfo = document.getElementById('epubPageInfo');
+            const mensaje = document.getElementById('mensajeVisor');
+            const errorDiv = document.getElementById('errorVisor');
+
+            let currentEpub = null;
+            let currentRendition = null;
+            let abortController = null;
+
+            function ocultarTodo() {
+                mdContainer.style.display = 'none';
+                mdContainer.innerHTML = ''; 
+                epubViewer.classList.remove('activo');
+                mensaje.style.display = 'none';
+                errorDiv.style.display = 'none';
+            }
+
+            function mostrarError(msg) {
+                ocultarTodo();
+                errorDiv.textContent = msg;
+                errorDiv.style.display = 'block';
+            }
+
+            function destruirEpub() {
+                if (currentRendition) { try { currentRendition.destroy(); } catch(e){} currentRendition = null; }
+                if (currentEpub) { try { currentEpub.destroy(); } catch(e){} currentEpub = null; }
+                epubArea.innerHTML = '';
+            }
+
+            function cerrarVisor() {
+                overlay.classList.remove('activo');
+                destruirEpub();
+                if (abortController) abortController.abort();
+                ocultarTodo();
+            }
+
+            async function abrirMarkdown(archivo) {
+                destruirEpub();
+                ocultarTodo();
+                titulo.textContent = archivo;
+                
+                mensaje.style.display = 'block';
+                mensaje.textContent = 'Cargando Markdown...';
+
+                if (abortController) abortController.abort();
+                abortController = new AbortController();
+
+                try {
+                    const response = await fetch(archivo, { signal: abortController.signal });
+                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                    
+                    const texto = await response.text();
+
+                    const nuevoZeroMd = document.createElement('zero-md');
+                    nuevoZeroMd.setAttribute('no-shadow', ''); 
+                    nuevoZeroMd.innerHTML = `<template><script type="text/markdown">${texto}<\/script><\/template>`;
+                    
+                    mdContainer.appendChild(nuevoZeroMd);
+                    
+                    mensaje.style.display = 'none';
+                    mdContainer.style.display = 'block';
+
+                } catch (error) {
+                    if (error.name === 'AbortError') return;
+                    console.error(error);
+                    mostrarError(`No se pudo cargar el archivo "${archivo}". Verifica que exista y que estés usando un servidor local.`);
+                }
+            }
+
+            function abrirEpub(archivo) {
+                destruirEpub();
+                ocultarTodo();
+                titulo.textContent = archivo;
+                epubViewer.classList.add('activo');
+                
+                mensaje.style.display = 'block';
+                mensaje.textContent = 'Cargando EPUB...';
+
+                try {
+                    currentEpub = ePub(archivo);
+
+                    currentEpub.ready.then(() => {
+                        mensaje.style.display = 'none';
+                        currentRendition = currentEpub.renderTo(epubArea, {
+                            width: '100%', height: '100%', spread: 'none', flow: 'paginated'
+                        });
+                        return currentRendition.display();
+                    }).then(() => {
+                        actualizarBotonesEpub();
+                    }).catch(err => {
+                        console.error(err);
+                        mostrarError('Error al cargar el EPUB. Revisa que el nombre del archivo sea exacto.');
+                        epubViewer.classList.remove('activo');
+                    });
+
+                    currentEpub.ready.then(() => {
+                        if (!currentRendition) return;
+                        currentRendition.on('relocated', function (location) {
+                            const d = location.start.displayed;
+                            epubPageInfo.textContent = d ? `Pág ${d.page} / ${d.total}` : `${Math.round(location.start.percentage*100)}%`;
+                            actualizarBotonesEpub();
+                        });
+                    });
+
+                } catch (e) {
+                    mostrarError('Error inicializando EPUB: ' + e.message);
+                    epubViewer.classList.remove('activo');
+                }
+            }
+
+            function actualizarBotonesEpub() {
+                if (!currentRendition) return;
+                const loc = currentRendition.currentLocation();
+                if (loc && loc.start) {
+                    epubPrev.disabled = loc.start.atStart;
+                    epubNext.disabled = loc.start.atEnd;
+                }
+            }
+
+            epubPrev.addEventListener('click', () => { if(currentRendition) currentRendition.prev().then(actualizarBotonesEpub); });
+            epubNext.addEventListener('click', () => { if(currentRendition) currentRendition.next().then(actualizarBotonesEpub); });
+
+            document.querySelectorAll('a[data-src]').forEach(enlace => {
+                enlace.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    overlay.classList.add('activo');
+                    const archivo = this.dataset.src;
+                    const tipo = this.dataset.tipo;
+                    
+                    if (tipo === 'epub') abrirEpub(archivo);
+                    else abrirMarkdown(archivo);
+                });
+            });
+
+            document.getElementById('cerrarVisor').addEventListener('click', cerrarVisor);
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) cerrarVisor(); });
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && overlay.classList.contains('activo')) cerrarVisor(); });
+
+        })();
+    </script>
+</body>
+</html>

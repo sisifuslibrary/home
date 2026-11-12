@@ -3,16 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visor de archivos · MD + EPUB</title>
+    <title>Visor de archivos · MD + EPUB (Local)</title>
 
-    <!-- 1. Componente zero-md (Markdown) -->
-    <script type="module" src="https://cdn.jsdelivr.net/npm/zero-md@3?register"></script>
+    <!-- 1. Registro de zero-md (Markdown) local -->
+    <script type="module">
+        import ZeroMd from './libs/zero-md.js';
+        // Registramos el componente. 
+        // Usamos 'zero-md' como nombre de etiqueta.
+        customElements.define('zero-md', ZeroMd);
+    </script>
 
-    <!-- 2. JSZip (Requisito para EPUB) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    
-    <!-- 3. EPUB.js (Visor EPUB) -->
-    <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
+    <!-- 2. JSZip (Requisito para EPUB) local -->
+    <script src="./libs/jszip.min.js"></script>
+
+    <!-- 3. EPUB.js (Visor EPUB) local -->
+    <script src="./libs/epub.min.js"></script>
 
     <style>
         * { box-sizing: border-box; }
@@ -84,9 +89,13 @@
         /* Utilidades */
         .cargando { display: none; text-align: center; padding: 2rem; color: #64748b; }
         .error-msg { display: none; background: #fef2f2; color: #b91c1c; padding: 1rem; border-radius: 8px; border: 1px solid #fecaca; margin-top: 1rem;}
-        
-        /* Estilo para las imágenes dentro del markdown */
-        zero-md img { max-width: 100%; height: auto; border-radius: 6px; }
+
+        /* Estilos para el contenido Markdown (ya que usaremos no-shadow) */
+        #mdContainer { line-height: 1.6; color: #1e293b; }
+        #mdContainer h1, #mdContainer h2, #mdContainer h3 { border-bottom: 1px solid #e2e8f0; padding-bottom: 0.3rem; margin-top: 1.5rem; }
+        #mdContainer img { max-width: 100%; height: auto; border-radius: 6px; }
+        #mdContainer pre { background: #f1f5f9; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+        #mdContainer code { background: #f1f5f9; padding: 0.2rem 0.4rem; border-radius: 4px; font-family: monospace; }
     </style>
 </head>
 <body>
@@ -121,11 +130,7 @@
                 <button class="cerrar-btn" id="cerrarVisor">&times;</button>
             </div>
             <div class="modal-body" id="modalBody">
-                
-                <!-- Contenedor Markdown (Vacío, se llenará por JS) -->
                 <div id="mdContainer" style="display:none;"></div>
-
-                <!-- Contenedor EPUB -->
                 <div id="epub-viewer">
                     <div id="epub-area"></div>
                     <div class="epub-controls">
@@ -134,8 +139,6 @@
                         <button id="epubNext" disabled>Siguiente ▶</button>
                     </div>
                 </div>
-
-                <!-- Mensajes -->
                 <div id="mensajeVisor" class="cargando">Cargando archivo...</div>
                 <div id="errorVisor" class="error-msg"></div>
             </div>
@@ -161,7 +164,7 @@
 
             function ocultarTodo() {
                 mdContainer.style.display = 'none';
-                mdContainer.innerHTML = ''; // Limpiar el markdown anterior
+                mdContainer.innerHTML = ''; 
                 epubViewer.classList.remove('activo');
                 mensaje.style.display = 'none';
                 errorDiv.style.display = 'none';
@@ -186,12 +189,12 @@
                 ocultarTodo();
             }
 
-            // --- LÓGICA MARKDOWN CORREGIDA ---
+            // --- LÓGICA MARKDOWN ---
             async function abrirMarkdown(archivo) {
                 destruirEpub();
                 ocultarTodo();
                 titulo.textContent = archivo;
-                
+
                 mensaje.style.display = 'block';
                 mensaje.textContent = 'Cargando Markdown...';
 
@@ -199,23 +202,33 @@
                 abortController = new AbortController();
 
                 try {
-                    // 1. Descargamos el texto
                     const response = await fetch(archivo, { signal: abortController.signal });
                     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    
                     const texto = await response.text();
 
-                    // 2. Creamos un NUEVO elemento zero-md desde cero (esto fuerza el renderizado)
+                    // Crear un nuevo elemento zero-md
                     const nuevoZeroMd = document.createElement('zero-md');
-                    nuevoZeroMd.setAttribute('no-shadow', ''); 
+                    
+                    // Importante: Forzamos "no-shadow" para que sea más fácil inyectar y estilar
+                    nuevoZeroMd.setAttribute('no-shadow', '');
 
-                    // 3. Le inyectamos el markdown usando un template interno
-                    nuevoZeroMd.innerHTML = `<template><script type="text/markdown">${texto}<\/script><\/template>`;
+                    // Creamos un elemento <template> real
+                    const template = document.createElement('template');
                     
-                    // 4. Lo metemos en el contenedor
+                    // Creamos el script con el texto
+                    const scriptMarkdown = document.createElement('script');
+                    scriptMarkdown.setAttribute('type', 'text/markdown');
+                    scriptMarkdown.textContent = texto; 
+                    
+                    // Metemos el script dentro del template
+                    template.content.appendChild(scriptMarkdown);
+                    
+                    // Metemos el template dentro de zero-md
+                    nuevoZeroMd.appendChild(template);
+                    
+                    // Lo añadimos al DOM
                     mdContainer.appendChild(nuevoZeroMd);
-                    
-                    // 5. Mostramos
+
                     mensaje.style.display = 'none';
                     mdContainer.style.display = 'block';
 
@@ -226,13 +239,13 @@
                 }
             }
 
-            // --- LÓGICA EPUB (Sin cambios) ---
+            // --- LÓGICA EPUB ---
             function abrirEpub(archivo) {
                 destruirEpub();
                 ocultarTodo();
                 titulo.textContent = archivo;
                 epubViewer.classList.add('activo');
-                
+
                 mensaje.style.display = 'block';
                 mensaje.textContent = 'Cargando EPUB...';
 
@@ -287,7 +300,7 @@
                     overlay.classList.add('activo');
                     const archivo = this.dataset.src;
                     const tipo = this.dataset.tipo;
-                    
+
                     if (tipo === 'epub') abrirEpub(archivo);
                     else abrirMarkdown(archivo);
                 });
