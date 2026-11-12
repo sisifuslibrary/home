@@ -168,33 +168,30 @@
             const listaUl = document.getElementById('lista-epubs');
             
             try {
-                // Leemos el archivo JSON generado
                 const response = await fetch('libros.json');
                 if (!response.ok) throw new Error('No se encontró libros.json');
                 
                 const libros = await response.json();
 
-                listaUl.innerHTML = ''; // Limpiar mensaje de carga
+                listaUl.innerHTML = ''; 
 
                 if (libros.length === 0) {
                     listaUl.innerHTML = '<li class="no-archivos">No hay libros en la lista.</li>';
                     return;
                 }
 
-                // Crear los elementos de la lista
                 libros.forEach(libro => {
                     const li = document.createElement('li');
                     
                     const spanNombre = document.createElement('span');
                     spanNombre.className = 'archivo';
-                    spanNombre.textContent = libro.titulo; // Mostramos el nombre con espacios
+                    spanNombre.textContent = libro.titulo;
                     
                     const enlace = document.createElement('a');
                     enlace.href = '#';
                     enlace.className = 'btn-abrir';
                     enlace.textContent = 'Abrir';
                     
-                    // Usamos la URL codificada para la petición
                     enlace.addEventListener('click', (e) => {
                         e.preventDefault();
                         abrirVisor(libro.url, libro.titulo);
@@ -235,6 +232,7 @@
 
             let currentEpub = null;
             let currentRendition = null;
+            let currentLibroId = null; // Para guardar el estado de lectura
 
             window.abrirVisor = function(archivoUrl, archivoTitulo) {
                 overlay.classList.add('activo');
@@ -243,7 +241,7 @@
                 modalContenido.classList.add('pantalla-completa');
                 modalBody.classList.add('epub-mode');
                 
-                titulo.textContent = archivoTitulo; // Mostrar el título amigable
+                titulo.textContent = archivoTitulo;
                 epubViewer.classList.add('activo');
 
                 mensaje.style.display = 'block';
@@ -252,9 +250,11 @@
 
                 currentFontSize = 100;
                 zoomLevel.textContent = '100%';
+                
+                // Identificador único para el localStorage (usamos la URL)
+                currentLibroId = `epub_last_pos_${archivoUrl}`;
 
                 try {
-                    // Pasamos la URL codificada a ePub
                     currentEpub = ePub(archivoUrl);
 
                     currentEpub.ready.then(() => {
@@ -262,7 +262,18 @@
                         currentRendition = currentEpub.renderTo(epubArea, {
                             width: '100%', height: '100%', spread: 'none', flow: 'paginated'
                         });
-                        return currentRendition.display();
+
+                        // --- RECUPERAR POSICIÓN GUARDADA ---
+                        const posicionGuardada = localStorage.getItem(currentLibroId);
+                        
+                        if (posicionGuardada) {
+                            // Si hay una posición guardada, abrimos ahí
+                            return currentRendition.display(posicionGuardada);
+                        } else {
+                            // Si no, abrimos desde el principio
+                            return currentRendition.display();
+                        }
+
                     }).then(() => {
                         actualizarBotonesEpub();
                         currentRendition.on('rendered', () => applyZoom());
@@ -273,10 +284,17 @@
 
                     currentEpub.ready.then(() => {
                         if (!currentRendition) return;
+                        
+                        // --- GUARDAR POSICIÓN AL CAMBIAR DE PÁGINA ---
                         currentRendition.on('relocated', function (location) {
                             const d = location.start.displayed;
                             epubPageInfo.textContent = d ? `Pág ${d.page} / ${d.total}` : `${Math.round(location.start.percentage*100)}%`;
                             actualizarBotonesEpub();
+
+                            // Guardamos el CFI (la "dirección" exacta dentro del libro)
+                            if (location && location.start && location.start.cfi) {
+                                localStorage.setItem(currentLibroId, location.start.cfi);
+                            }
                         });
                     });
 
@@ -295,6 +313,7 @@
                 if (currentRendition) { try { currentRendition.destroy(); } catch(e){} currentRendition = null; }
                 if (currentEpub) { try { currentEpub.destroy(); } catch(e){} currentEpub = null; }
                 epubArea.innerHTML = '';
+                currentLibroId = null;
             }
 
             function cerrarVisor() {
