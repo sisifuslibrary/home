@@ -3,8 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tabla de archivos</title>
+    <title>Visor de archivos · MD + EPUB</title>
+
+    <!-- Componente zero-md (para Markdown) -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/zero-md@3?register"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.5/jszip.min.js"></script>
+    <!-- EPUB.js (para leer EPUB en el navegador) -->
+    <script src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
+
     <style>
+        /* ----- estilos generales ----- */
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
             background-color: #f4f6f8;
@@ -14,7 +27,6 @@
             min-height: 100vh;
             margin: 0;
             padding: 1rem;
-            box-sizing: border-box;
         }
 
         .contenedor {
@@ -23,7 +35,7 @@
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
             padding: 2rem;
             width: 100%;
-            max-width: 500px;
+            max-width: 650px;
         }
 
         h1 {
@@ -80,6 +92,7 @@
             align-items: center;
             gap: 0.35rem;
             transition: color 0.2s;
+            cursor: pointer;
         }
 
         a:hover {
@@ -87,38 +100,508 @@
             text-decoration: underline;
         }
 
-        a::before {
+        .archivo {
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 0.95rem;
+            word-break: break-word;
+        }
+
+        /* iconos según tipo de archivo */
+        .tipo-md a::before {
             content: "📄";
             font-size: 1rem;
         }
 
-        .archivo {
-            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        .tipo-epub a::before {
+            content: "📘";
+            font-size: 1rem;
+        }
+
+        /* ----- modal visor ----- */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.6);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            padding: 1.5rem;
+            z-index: 1000;
+        }
+
+        .modal-overlay.activo {
+            display: flex;
+        }
+
+        .modal-contenido {
+            background: #ffffff;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 950px;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f8fafc;
+            flex-shrink: 0;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.1rem;
+            color: #1e293b;
+            font-weight: 600;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .cerrar-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            line-height: 1;
+            color: #64748b;
+            cursor: pointer;
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            flex-shrink: 0;
+        }
+
+        .cerrar-btn:hover {
+            background: #e2e8f0;
+            color: #0f172a;
+        }
+
+        .modal-body {
+            overflow-y: auto;
+            padding: 1.5rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* estilos para zero-md */
+        zero-md {
+            display: block;
+        }
+
+        /* ----- visor EPUB ----- */
+        #epub-viewer {
+            width: 100%;
+            height: 70vh;
+            min-height: 400px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #ffffff;
+            display: none;
+            flex-direction: column;
+        }
+
+        #epub-viewer.activo {
+            display: flex;
+        }
+
+        #epub-area {
+            flex: 1;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        /* controles de navegación EPUB */
+        .epub-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.6rem 1rem;
+            background: #f8fafc;
+            border-top: 1px solid #e2e8f0;
+            border-radius: 0 0 8px 8px;
+            flex-shrink: 0;
+        }
+
+        .epub-controls button {
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 0.4rem 1.2rem;
             font-size: 0.95rem;
+            color: #1e293b;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .epub-controls button:hover {
+            background: #e2e8f0;
+            border-color: #94a3b8;
+        }
+
+        .epub-controls button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .epub-controls span {
+            font-size: 0.9rem;
+            color: #475569;
+            min-width: 90px;
+            text-align: center;
+        }
+
+        /* estado de carga */
+        .cargando {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 3rem;
+            color: #64748b;
+            font-size: 1.1rem;
+            gap: 0.75rem;
+        }
+
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid #e2e8f0;
+            border-top-color: #2563eb;
+            border-radius: 50%;
+            animation: girar 0.8s linear infinite;
+        }
+
+        @keyframes girar {
+            to { transform: rotate(360deg); }
+        }
+
+        .error-msg {
+            color: #b91c1c;
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1rem 0;
+            font-size: 0.95rem;
+            text-align: center;
         }
     </style>
 </head>
 <body>
     <div class="contenedor">
-        <h1>Archivos en la raíz</h1>
+        <h1>Archivos disponibles</h1>
         <table>
             <thead>
                 <tr>
                     <th>Archivo</th>
-                    <th>Enlace</th>
+                    <th>Acción</th>
                 </tr>
             </thead>
             <tbody>
-                <tr>
+                <!-- Markdown -->
+                <tr class="tipo-md">
                     <td class="archivo">color.md</td>
-                    <td><a href="color.md" target="_blank">Abrir color.md</a></td>
+                    <td><a href="#" data-src="color.md" data-tipo="md">Abrir color.md</a></td>
                 </tr>
-                <tr>
+                <tr class="tipo-md">
                     <td class="archivo">piranesi.md</td>
-                    <td><a href="piranesi.md" target="_blank">Abrir piranesi.md</a></td>
+                    <td><a href="#" data-src="piranesi.md" data-tipo="md">Abrir piranesi.md</a></td>
+                </tr>
+
+                <!-- EPUB -->
+                <tr class="tipo-epub">
+                    <td class="archivo">El_vendedor_de_suenos.epub</td>
+                    <td><a href="#" data-src="El_vendedor_de_suenos.epub" data-tipo="epub">Abrir El_vendedor_de_suenos.epub</a></td>
                 </tr>
             </tbody>
         </table>
+        <p style="font-size:0.8rem; color:#64748b; margin-top:1.5rem; text-align:center;">
+            Los archivos <strong>.md</strong> se renderizan con zero-md · Los <strong>.epub</strong> se abren con EPUB.js
+        </p>
     </div>
+
+    <!-- Modal visor -->
+    <div class="modal-overlay" id="visorOverlay">
+        <div class="modal-contenido">
+            <div class="modal-header">
+                <h2 id="visorTitulo">Visor</h2>
+                <button class="cerrar-btn" id="cerrarVisor" aria-label="Cerrar">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Contenedor para Markdown -->
+                <div id="mdContainer">
+                    <zero-md id="visorMd" no-shadow></zero-md>
+                </div>
+
+                <!-- Contenedor para EPUB -->
+                <div id="epub-viewer">
+                    <div id="epub-area"></div>
+                    <div class="epub-controls">
+                        <button id="epubPrev" aria-label="Página anterior">◀ Anterior</button>
+                        <span id="epubPageInfo">—</span>
+                        <button id="epubNext" aria-label="Página siguiente">Siguiente ▶</button>
+                    </div>
+                </div>
+
+                <!-- Mensaje de carga / error -->
+                <div id="mensajeVisor" class="cargando" style="display:none;">
+                    <div class="spinner"></div>
+                    <span>Cargando…</span>
+                </div>
+                <div id="errorVisor" class="error-msg" style="display:none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            // Referencias del DOM
+            const overlay      = document.getElementById('visorOverlay');
+            const titulo       = document.getElementById('visorTitulo');
+            const visorMd      = document.getElementById('visorMd');
+            const mdContainer  = document.getElementById('mdContainer');
+            const epubViewer   = document.getElementById('epub-viewer');
+            const epubArea     = document.getElementById('epub-area');
+            const epubPrev     = document.getElementById('epubPrev');
+            const epubNext     = document.getElementById('epubNext');
+            const epubPageInfo = document.getElementById('epubPageInfo');
+            const mensaje      = document.getElementById('mensajeVisor');
+            const errorDiv     = document.getElementById('errorVisor');
+            const cerrarBtn    = document.getElementById('cerrarVisor');
+
+            // Variables de estado para EPUB
+            let currentEpub   = null;      // instancia de ePub
+            let currentRendition = null;   // rendition
+            let currentTipo   = null;      // 'md' | 'epub'
+
+            // Mostrar/ocultar secciones
+            function ocultarTodo() {
+                mdContainer.style.display = 'none';
+                epubViewer.classList.remove('activo');
+                mensaje.style.display = 'none';
+                errorDiv.style.display = 'none';
+            }
+
+            function mostrarMensaje(texto) {
+                ocultarTodo();
+                mensaje.style.display = 'flex';
+                mensaje.querySelector('span').textContent = texto || 'Cargando…';
+            }
+
+            function mostrarError(texto) {
+                ocultarTodo();
+                errorDiv.textContent = texto;
+                errorDiv.style.display = 'block';
+            }
+
+            // Destruir la instancia EPUB actual (si existe)
+            function destruirEpub() {
+                if (currentRendition) {
+                    try { currentRendition.destroy(); } catch (e) { /* ignorar */ }
+                    currentRendition = null;
+                }
+                if (currentEpub) {
+                    try { currentEpub.destroy(); } catch (e) { /* ignorar */ }
+                    currentEpub = null;
+                }
+                epubArea.innerHTML = '';
+            }
+
+            // Cerrar el visor completamente
+            function cerrarVisor() {
+                overlay.classList.remove('activo');
+                visorMd.removeAttribute('src');
+                destruirEpub();
+                ocultarTodo();
+                currentTipo = null;
+                titulo.textContent = 'Visor';
+            }
+
+            // ---- VISOR MARKDOWN ----
+            function abrirMarkdown(archivo) {
+                destruirEpub();
+                ocultarTodo();
+
+                currentTipo = 'md';
+                titulo.textContent = archivo;
+
+                // Mostrar contenedor MD y asignar fuente
+                mdContainer.style.display = 'block';
+                visorMd.setAttribute('src', archivo);
+
+                // Mostrar mensaje de carga hasta que zero-md termine
+                mostrarMensaje('Cargando Markdown…');
+
+                // zero-md dispara 'zero-md-ready' cuando termina de renderizar
+                const onReady = function () {
+                    visorMd.removeEventListener('zero-md-ready', onReady);
+                    // Solo ocultar mensaje si seguimos en modo md
+                    if (currentTipo === 'md') {
+                        mensaje.style.display = 'none';
+                        mdContainer.style.display = 'block';
+                    }
+                };
+                visorMd.addEventListener('zero-md-ready', onReady);
+
+                // Fallback por si zero-md falla (error de red, etc.)
+                setTimeout(() => {
+                    if (currentTipo === 'md' && mensaje.style.display !== 'none') {
+                        // Si después de 6s sigue cargando, mostramos el md igualmente
+                        mensaje.style.display = 'none';
+                        mdContainer.style.display = 'block';
+                    }
+                }, 6000);
+            }
+
+            // ---- VISOR EPUB ----
+            function abrirEpub(archivo) {
+                destruirEpub();
+                ocultarTodo();
+
+                currentTipo = 'epub';
+                titulo.textContent = archivo;
+
+                // Mostrar mensaje de carga y el contenedor epub (oculto hasta que esté listo)
+                epubViewer.classList.add('activo');
+                epubPageInfo.textContent = '—';
+                epubPrev.disabled = true;
+                epubNext.disabled = true;
+
+                // Mostrar spinner en lugar del área (el área está vacía)
+                mensaje.style.display = 'flex';
+                mensaje.querySelector('span').textContent = 'Cargando EPUB…';
+
+                // Crear libro
+                try {
+                    currentEpub = ePub(archivo);
+
+                    // Esperar a que el libro esté listo
+                    currentEpub.ready.then(() => {
+                        // Ocultar mensaje
+                        mensaje.style.display = 'none';
+
+                        // Crear rendition
+                        currentRendition = currentEpub.renderTo(epubArea, {
+                            width: '100%',
+                            height: '100%',
+                            spread: 'none',
+                            flow: 'paginated'
+                        });
+
+                        // Mostrar el primer capítulo
+                        return currentRendition.display();
+                    }).then(() => {
+                        // Configurar controles de navegación
+                        actualizarBotonesEpub();
+                    }).catch(err => {
+                        console.error('Error al cargar EPUB:', err);
+                        mostrarError('No se pudo cargar el EPUB. Verifica que el archivo exista y sea válido.');
+                        epubViewer.classList.remove('activo');
+                    });
+
+                    // Actualizar información de página cuando cambie la ubicación
+                    currentEpub.ready.then(() => {
+                        if (!currentRendition) return;
+                        currentRendition.on('relocated', function (location) {
+                            actualizarInfoPagina(location);
+                            actualizarBotonesEpub();
+                        });
+                    });
+
+                } catch (e) {
+                    console.error(e);
+                    mostrarError('Error al inicializar el lector EPUB: ' + e.message);
+                    epubViewer.classList.remove('activo');
+                }
+            }
+
+            // Actualizar el texto de página (ej: "Pág 3 / 12")
+            function actualizarInfoPagina(location) {
+                if (!location || !location.start) return;
+                const displayed = location.start.displayed;
+                if (displayed) {
+                    epubPageInfo.textContent = `Pág ${displayed.page} / ${displayed.total}`;
+                } else {
+                    // Si no hay información de paginación, mostramos el porcentaje
+                    const pct = Math.round((location.start.percentage || 0) * 100);
+                    epubPageInfo.textContent = `${pct}%`;
+                }
+            }
+
+            // Habilitar/deshabilitar botones según disponibilidad
+            function actualizarBotonesEpub() {
+                if (!currentRendition) return;
+                const loc = currentRendition.currentLocation();
+                if (loc && loc.start) {
+                    epubPrev.disabled = loc.start.atStart === true;
+                    epubNext.disabled = loc.start.atEnd === true;
+                }
+            }
+
+            // Navegación EPUB
+            epubPrev.addEventListener('click', function () {
+                if (currentRendition) {
+                    currentRendition.prev().then(() => {
+                        actualizarBotonesEpub();
+                    });
+                }
+            });
+
+            epubNext.addEventListener('click', function () {
+                if (currentRendition) {
+                    currentRendition.next().then(() => {
+                        actualizarBotonesEpub();
+                    });
+                }
+            });
+
+            // ---- MANEJADOR DE CLICS EN LA TABLA ----
+            document.querySelectorAll('a[data-src]').forEach(function (enlace) {
+                enlace.addEventListener('click', function (e) {
+                    e.preventDefault();
+
+                    const archivo = this.dataset.src;
+                    const tipo    = this.dataset.tipo;
+
+                    // Abrir overlay
+                    overlay.classList.add('activo');
+
+                    // Redirigir según tipo
+                    if (tipo === 'epub') {
+                        abrirEpub(archivo);
+                    } else {
+                        // por defecto md
+                        abrirMarkdown(archivo);
+                    }
+                });
+            });
+
+            // Cerrar con botón
+            cerrarBtn.addEventListener('click', cerrarVisor);
+
+            // Cerrar al hacer clic fuera del modal
+            overlay.addEventListener('click', function (e) {
+                if (e.target === overlay) cerrarVisor();
+            });
+
+            // Cerrar con Escape
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && overlay.classList.contains('activo')) {
+                    cerrarVisor();
+                }
+            });
+
+            // Al cargar la página, ocultar contenedores (por si acaso)
+            ocultarTodo();
+            epubViewer.classList.remove('activo');
+        })();
+    </script>
 </body>
 </html>
