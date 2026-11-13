@@ -164,12 +164,21 @@
         /* Visor EPUB */
         #epub-viewer { width: 100%; height: 100%; display: none; flex-direction: column; flex: 1; }
         #epub-viewer.activo { display: flex; }
-        #epub-area { flex: 1; width: 100%; overflow: hidden; background: #fff;}
+        
+        /* El contenedor del área de lectura */
+        #epub-area { 
+            flex: 1; 
+            width: 100%; 
+            overflow: hidden; 
+            background: #fff;
+            position: relative;
+        }
 
         /* Controles del EPUB */
         .epub-controls {
             display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 1rem;
             background: #f8fafc; border-top: 1px solid #e2e8f0; flex-wrap: wrap; gap: 0.5rem;
+            z-index: 10;
         }
         .epub-nav, .epub-zoom { display: flex; align-items: center; gap: 0.5rem; }
         .epub-controls button {
@@ -247,13 +256,12 @@
         // 1. CONFIGURACIÓN DE SEGURIDAD
         // ==========================================
         // Hashes SHA-256. Usuario: "admin" | Contraseña: "Secreta123"
-        // Para cambiar credenciales, genera un SHA-256 y reemplaza el hash.
         const HASH_USUARIO = "f6d73330ecc46e287eacad3e9d093a52547edbd1147e41791133e9be3d4432f8";
         const HASH_PASSWORD = "30a370a452bab51cec04b39f7f8ff71c03ffa06376b04a231ca97015595d94ea";
 
         async function sha256(texto) {
             if (!window.crypto || !window.crypto.subtle) {
-                throw new Error("crypto.subtle no disponible. Abre el archivo desde http://localhost o https:// (no con doble clic).");
+                throw new Error("crypto.subtle no disponible. Abre el archivo desde http://localhost o https://.");
             }
             const encoder = new TextEncoder();
             const data = encoder.encode(texto);
@@ -282,9 +290,6 @@
             try {
                 const hashUserInput = await sha256(userVal);
                 const hashPassInput = await sha256(passVal);
-
-                console.log('Hash usuario:', hashUserInput);
-                console.log('Hash password:', hashPassInput);
 
                 if (hashUserInput === HASH_USUARIO && hashPassInput === HASH_PASSWORD) {
                     document.getElementById('login-screen').style.display = 'none';
@@ -320,25 +325,14 @@
 
             try {
                 const response = await fetch('libros.json', { cache: 'no-store' });
-                console.log('Respuesta libros.json:', response.status);
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status} al pedir libros.json`);
-                }
+                if (!response.ok) throw new Error(`HTTP ${response.status} al pedir libros.json`);
 
                 const texto = await response.text();
-                console.log('Contenido libros.json:', texto);
-
                 let libros;
-                try {
-                    libros = JSON.parse(texto);
-                } catch (e) {
-                    throw new Error('libros.json no es JSON válido: ' + e.message);
-                }
+                try { libros = JSON.parse(texto); } 
+                catch (e) { throw new Error('libros.json no es JSON válido: ' + e.message); }
 
-                if (!Array.isArray(libros)) {
-                    throw new Error('libros.json debe ser un array.');
-                }
+                if (!Array.isArray(libros)) throw new Error('libros.json debe ser un array.');
 
                 listaUl.innerHTML = '';
 
@@ -350,7 +344,6 @@
 
                 libros.forEach(libro => {
                     const li = document.createElement('li');
-
                     const spanNombre = document.createElement('span');
                     spanNombre.className = 'archivo';
                     spanNombre.textContent = libro.titulo || libro.url || '(sin título)';
@@ -386,7 +379,7 @@
         }
 
         // ==========================================
-        // 4. LÓGICA DEL VISOR EPUB
+        // 4. LÓGICA DEL VISOR EPUB (ADAPTABLE)
         // ==========================================
         (function () {
             const overlay = document.getElementById('visorOverlay');
@@ -410,6 +403,7 @@
             let currentEpub = null;
             let currentRendition = null;
             let currentLibroId = null;
+            let resizeTimer = null; // Para el debounce
 
             window.abrirVisor = function(archivoUrl, archivoTitulo) {
                 overlay.classList.add('activo');
@@ -435,12 +429,48 @@
 
                     currentEpub.ready.then(() => {
                         mensaje.style.display = 'none';
+                        
+                        // 1. Obtener dimensiones reales del contenedor
+                        const anchoReal = epubArea.clientWidth;
+                        const altoReal = epubArea.clientHeight;
+
+                        // 2. Renderizar con dimensiones numéricas
                         currentRendition = currentEpub.renderTo(epubArea, {
-                            width: '100%', height: '100%', spread: 'none', flow: 'paginated'
+                            width: anchoReal,      
+                            height: altoReal,      
+                            spread: 'none', 
+                            flow: 'paginated',
+                            manager: 'default' // 'default' responde mejor al redimensionamiento
                         });
 
-                        const posicionGuardada = localStorage.getItem(currentLibroId);
+                        // 3. Aplicar estilos personalizados para simular un libro real
+                        currentRendition.themes.default({
+                            "body": {
+                                "padding": "40px 60px !important", 
+                                "font-family": "Georgia, 'Times New Roman', serif !important",
+                                "line-height": "1.8 !important",
+                                "text-align": "justify !important",
+                                "color": "#1e293b !important",
+                                "max-width": "100% !important",
+                                "box-sizing": "border-box !important"
+                            },
+                            "p": {
+                                "margin-bottom": "1.2em !important",
+                                "text-indent": "1.5em !important"
+                            },
+                            "h1, h2, h3": {
+                                "text-align": "center !important",
+                                "margin-top": "1.5em !important",
+                                "margin-bottom": "1em !important",
+                                "font-weight": "bold !important"
+                            }
+                        });
 
+                        // Aplicar zoom inicial
+                        currentRendition.themes.fontSize(`${currentFontSize}%`);
+
+                        // Recuperar posición
+                        const posicionGuardada = localStorage.getItem(currentLibroId);
                         if (posicionGuardada) {
                             return currentRendition.display(posicionGuardada);
                         } else {
@@ -457,7 +487,6 @@
 
                     currentEpub.ready.then(() => {
                         if (!currentRendition) return;
-
                         currentRendition.on('relocated', function (location) {
                             const d = location.start.displayed;
                             epubPageInfo.textContent = d ? `Pág ${d.page} / ${d.total}` : `${Math.round(location.start.percentage*100)}%`;
@@ -528,6 +557,25 @@
 
             epubPrev.addEventListener('click', () => { if(currentRendition) currentRendition.prev().then(actualizarBotonesEpub); });
             epubNext.addEventListener('click', () => { if(currentRendition) currentRendition.next().then(actualizarBotonesEpub); });
+
+            // ==========================================
+            // 5. MANEJO DEL REDIMENSIONAMIENTO (RESIZE)
+            // ==========================================
+            window.addEventListener('resize', () => {
+                if (!currentRendition) return;
+                
+                // Usamos debounce para no saturar a EPUB.js mientras el usuario arrastra la ventana
+                clearTimeout(resizeTimer);
+                resizeTimer = setTimeout(() => {
+                    const nuevoAncho = epubArea.clientWidth;
+                    const nuevoAlto = epubArea.clientHeight;
+                    
+                    if (nuevoAncho > 0 && nuevoAlto > 0) {
+                        currentRendition.resize(nuevoAncho, nuevoAlto);
+                        applyZoom(); // Re-aplica el tamaño de fuente
+                    }
+                }, 200); // Espera 200ms después del último cambio de tamaño
+            });
 
             document.getElementById('cerrarVisor').addEventListener('click', cerrarVisor);
             overlay.addEventListener('click', (e) => { if (e.target === overlay) cerrarVisor(); });
